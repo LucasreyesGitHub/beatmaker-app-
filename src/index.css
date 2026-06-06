@@ -1,0 +1,55 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  body {
+    @apply bg-surface-0 text-white;
+    font-family: 'Inter', sans-serif;
+  }
+}
+
+@layer utilities {
+  .border-b-surface-0 {
+    border-bottom-color: #0a0a0f;
+  }
+}
+
+/* Range input — cross-browser */
+input[type='range'] {
+  -webkit-appearance: none;
+  appearance: none;
+  background: transparent;
+}
+input[type='range']::-webkit-slider-runnable-track {
+  height: 4px;
+  border-radius: 2px;
+  background: #2a2a40;
+}
+input[type='range']::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  background: var(--tw-accent, #7c3aed);
+  margin-top: -4px;
+  cursor: pointer;
+  transition: transform 0.1s;
+}
+input[type='range']:hover::-webkit-slider-thumb {
+  transform: scale(1.2);
+}
+input[type='range']::-moz-range-track {
+  height: 4px;
+  border-radius: 2px;
+  background: #2a2a40;
+}
+input[type='range']::-moz-range-thumb {
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  background: #7c3aed;
+  border: none;
+  cursor: pointer;
+}
