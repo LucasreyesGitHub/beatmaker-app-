@@ -25,12 +25,17 @@ class AudioEngine {
   }
 
   // ── Sintetizadores ────────────────────────────────────────────────────────
-  private kickSynth!:   Tone.MembraneSynth
-  private snareSynth!:  Tone.NoiseSynth
-  private hihatSynth!:  Tone.MetalSynth
-  private clapNoise!:   Tone.NoiseSynth
-  private tomSynth!:    Tone.MembraneSynth
-  private melodySynth!: Tone.PolySynth
+  private kickSynth!:    Tone.MembraneSynth
+  private kickSub!:      Tone.Synth            // sub-sine que refuerza el kick
+  private snareSynth!:   Tone.NoiseSynth
+  private snareBody!:    Tone.Synth            // tono del snare para el "crack"
+  private hihatSynth!:   Tone.MetalSynth
+  private hihatOpen!:    Tone.MetalSynth       // hi-hat abierto (más largo)
+  private clapNoise!:    Tone.NoiseSynth
+  private clapLayer!:    Tone.NoiseSynth       // segunda capa del clap (más ataque)
+  private tomSynth!:     Tone.MembraneSynth
+  private melodySynth!:  Tone.PolySynth
+  private openHatStep  = -1                    // rastrea si el paso actual es open hat
 
   // ── FX master bus ─────────────────────────────────────────────────────────
   private delay!:      Tone.FeedbackDelay
@@ -106,35 +111,92 @@ class AudioEngine {
       this.channelFxMap.set(id, { distortion, bitcrusher, filter, filterGain: cfade })
     }
 
-    // Sintetizadores
+    // ── KICK — bombo de reggaetón profesional ─────────────────────────────
+    // Capa 1: membrana con caída de pitch pronunciada (el "punch")
     this.kickSynth = new Tone.MembraneSynth({
-      pitchDecay: 0.08, octaves: 6,
-      envelope: { attack: 0.001, decay: 0.3, sustain: 0, release: 0.2 },
+      pitchDecay: 0.06,
+      octaves:    10,      // drop de 10 octavas = muy pronunciado
+      envelope: { attack: 0.001, decay: 0.35, sustain: 0, release: 0.1 },
     }).connect(this.channelGains.get('kick')!)
 
-    this.snareSynth = new Tone.NoiseSynth({
-      noise: { type: 'white' },
-      envelope: { attack: 0.001, decay: 0.18, sustain: 0, release: 0.1 },
-    }).connect(this.channelGains.get('snare')!)
+    // Capa 2: sine sub que refuerza el sub-grave del kick (el "boom")
+    this.kickSub = new Tone.Synth({
+      oscillator: { type: 'sine' },
+      envelope:   { attack: 0.001, decay: 0.25, sustain: 0, release: 0.1 },
+    })
+    const kickSubGain = new Tone.Gain(0.6)
+    this.kickSub.connect(kickSubGain)
+    kickSubGain.connect(this.channelGains.get('kick')!)
 
+    // ── SNARE — caja con cuerpo y crack ──────────────────────────────────
+    // Capa 1: ruido blanco filtrado (el "shhh" del snare)
+    this.snareSynth = new Tone.NoiseSynth({
+      noise:    { type: 'white' },
+      envelope: { attack: 0.001, decay: 0.14, sustain: 0, release: 0.05 },
+    })
+    const snareFilter = new Tone.Filter(3500, 'bandpass')
+    this.snareSynth.connect(snareFilter)
+    snareFilter.connect(this.channelGains.get('snare')!)
+
+    // Capa 2: tono corto (~200Hz) que da el "crack" físico del snare
+    this.snareBody = new Tone.Synth({
+      oscillator: { type: 'triangle' },
+      envelope:   { attack: 0.001, decay: 0.06, sustain: 0, release: 0.03 },
+    })
+    const snareBodyGain = new Tone.Gain(0.5)
+    this.snareBody.connect(snareBodyGain)
+    snareBodyGain.connect(this.channelGains.get('snare')!)
+
+    // ── HI-HAT cerrado — más seco y corto ────────────────────────────────
     this.hihatSynth = new Tone.MetalSynth({
-      envelope: { attack: 0.001, decay: 0.08, release: 0.01 },
-      harmonicity: 5.1, modulationIndex: 32, resonance: 4000, octaves: 1.5,
+      envelope:        { attack: 0.001, decay: 0.04, release: 0.01 },
+      harmonicity:     5.1,
+      modulationIndex: 40,
+      resonance:       6000,
+      octaves:         1.2,
     }).connect(this.channelGains.get('hihat')!)
 
+    // ── HI-HAT abierto — más largo, para variación ───────────────────────
+    this.hihatOpen = new Tone.MetalSynth({
+      envelope:        { attack: 0.001, decay: 0.3, release: 0.1 },
+      harmonicity:     5.1,
+      modulationIndex: 40,
+      resonance:       6000,
+      octaves:         1.2,
+    })
+    const hihatOpenGain = new Tone.Gain(0.6)
+    this.hihatOpen.connect(hihatOpenGain)
+    hihatOpenGain.connect(this.channelGains.get('hihat')!)
+
+    // ── CLAP — doble capa (ataque + cuerpo) ──────────────────────────────
+    // Capa 1: ruido rosado con cuerpo
     this.clapNoise = new Tone.NoiseSynth({
-      noise: { type: 'pink' },
-      envelope: { attack: 0.005, decay: 0.1, sustain: 0, release: 0.05 },
+      noise:    { type: 'pink' },
+      envelope: { attack: 0.002, decay: 0.12, sustain: 0, release: 0.08 },
     }).connect(this.channelGains.get('clap')!)
 
+    // Capa 2: ataque más brillante del clap (el "snap")
+    this.clapLayer = new Tone.NoiseSynth({
+      noise:    { type: 'white' },
+      envelope: { attack: 0.001, decay: 0.04, sustain: 0, release: 0.02 },
+    })
+    const clapSnapGain = new Tone.Gain(0.7)
+    const clapHpf      = new Tone.Filter(4000, 'highpass')
+    this.clapLayer.connect(clapHpf)
+    clapHpf.connect(clapSnapGain)
+    clapSnapGain.connect(this.channelGains.get('clap')!)
+
+    // ── TOM — más grave y con más cuerpo ─────────────────────────────────
     this.tomSynth = new Tone.MembraneSynth({
-      pitchDecay: 0.05, octaves: 4,
-      envelope: { attack: 0.001, decay: 0.25, sustain: 0, release: 0.15 },
+      pitchDecay: 0.08,
+      octaves:    5,
+      envelope:   { attack: 0.001, decay: 0.3, sustain: 0, release: 0.2 },
     }).connect(this.channelGains.get('tom')!)
 
+    // ── MELODY — PolySynth con múltiples osciladores y detuning ──────────
     this.melodySynth = new Tone.PolySynth(Tone.Synth, {
       oscillator: { type: 'sawtooth' },
-      envelope: { attack: 0.01, decay: 0.2, sustain: 0.5, release: 0.3 },
+      envelope:   { attack: 0.005, decay: 0.3, sustain: 0.4, release: 0.5 },
     }).connect(this.channelGains.get('melody')!)
 
     this._initialized = true
@@ -380,14 +442,48 @@ class AudioEngine {
     channels.forEach((ch) => {
       if (!ch.steps[step % ch.steps.length]) return
       switch (ch.id) {
-        case 'kick':   this.kickSynth.triggerAttackRelease('C1', '8n', time);  break
-        case 'snare':  this.snareSynth.triggerAttackRelease('8n', time);        break
-        case 'hihat':  this.hihatSynth.triggerAttackRelease('32n', time);       break
-        case 'clap':   this.clapNoise.triggerAttackRelease('16n', time);        break
-        case 'tom':    this.tomSynth.triggerAttackRelease('G1', '8n', time);    break
+
+        case 'kick':
+          // Kick doble capa: membrana + sub-sine a C1 (32.7 Hz — el sub real)
+          this.kickSynth.triggerAttackRelease('C1', '8n', time)
+          this.kickSub.triggerAttackRelease('C1', '16n', time)
+          break
+
+        case 'snare':
+          // Snare doble capa: noise + tono de cuerpo a ~185 Hz
+          this.snareSynth.triggerAttackRelease('8n', time)
+          this.snareBody.triggerAttackRelease('Bb2', '32n', time)
+          break
+
+        case 'hihat': {
+          // Hi-hat abierto en los pasos 6 y 14 (16avo tiempo), cerrado en el resto
+          const isOpen = step === 6 || step === 14 || step === 22 || step === 30
+          if (isOpen) {
+            this.hihatOpen.triggerAttackRelease('32n', time)
+          } else {
+            this.hihatSynth.triggerAttackRelease('32n', time)
+          }
+          break
+        }
+
+        case 'clap':
+          // Clap doble: cuerpo + snap agudo simultáneos
+          this.clapNoise.triggerAttackRelease('8n', time)
+          this.clapLayer.triggerAttackRelease('16n', time)
+          break
+
+        case 'tom':
+          this.tomSynth.triggerAttackRelease('G1', '8n', time)
+          break
+
         case 'melody': {
           const note = synth.notes[step % synth.notes.length]
-          if (note) this.melodySynth.triggerAttackRelease(note, '8n', time)
+          if (note) {
+            // Duración variable: notas graves más largas para el sub-bass
+            const isLow  = note.match(/[A-G]#?[12]$/)
+            const dur    = isLow ? '4n' : '8n'
+            this.melodySynth.triggerAttackRelease(note, dur, time)
+          }
           break
         }
       }
