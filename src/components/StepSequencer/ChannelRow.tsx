@@ -1,4 +1,4 @@
-import { useCallback, useState } from 'react'
+import { memo, useCallback, useState } from 'react'
 import { useStore } from '../../store/useStore'
 import { useTutorial } from '../../context/TutorialContext'
 import { ChannelConfig } from '../../types'
@@ -7,6 +7,48 @@ interface Props {
   channel:     ChannelConfig
   currentStep: number
 }
+
+// Botones de paso memoizados — no se re-renderizan con el cursor de playhead.
+// Solo se actualizan cuando cambian los pasos reales del canal.
+const StepButtons = memo(function StepButtons({
+  channel, onToggle, isHighlightedFn,
+}: {
+  channel: ChannelConfig
+  onToggle: (i: number) => void
+  isHighlightedFn: (channelId: string, step: number) => boolean
+}) {
+  return (
+    <div className="flex-1 flex gap-0.5 overflow-x-auto">
+      {channel.steps.slice(0, channel.stepCount).map((active, i) => {
+        const isBeat      = i % 4 === 0
+        const highlighted = isHighlightedFn(channel.id, i)
+        return (
+          <button
+            key={i}
+            onClick={() => onToggle(i)}
+            className={`
+              flex-1 min-w-[18px] h-8 rounded transition-all duration-75 relative
+              ${active ? 'opacity-90' : isBeat ? 'bg-surface-3 hover:bg-surface-4' : 'bg-surface-2 hover:bg-surface-3'}
+              ${highlighted ? 'ring-2 ring-yellow-400 animate-pulse z-10' : ''}
+            `}
+            style={{
+              backgroundColor: active ? channel.color : undefined,
+              boxShadow: highlighted
+                ? '0 0 8px #facc15, 0 0 16px #facc1566'
+                : active
+                ? `0 0 6px ${channel.color}55`
+                : undefined,
+            }}
+          >
+            {highlighted && !active && (
+              <div className="absolute inset-0 rounded bg-yellow-400/15" />
+            )}
+          </button>
+        )
+      })}
+    </div>
+  )
+})
 
 export function ChannelRow({ channel, currentStep }: Props) {
   const toggleStep        = useStore((s) => s.toggleStep)
@@ -30,6 +72,9 @@ export function ChannelRow({ channel, currentStep }: Props) {
     channel.fx.distortionAmount > 0.01 ||
     channel.fx.bitcrusherBits < 15 ||
     channel.fx.filterMix > 0.05
+
+  // El índice del paso activo visible (para el cursor de playhead)
+  const activeCursorStep = currentStep < channel.stepCount ? currentStep : -1
 
   return (
     <div className="flex items-center gap-2 group py-0.5">
@@ -61,7 +106,7 @@ export function ChannelRow({ channel, currentStep }: Props) {
         {/* Mute */}
         <button
           onClick={() => toggleMute(channel.id)}
-          title="Mute"
+          title="Silenciar canal"
           className={`w-5 h-5 text-[8px] font-mono font-bold rounded transition-all ${
             channel.muted
               ? 'bg-red-500/30 text-red-400 border border-red-500/50'
@@ -72,7 +117,7 @@ export function ChannelRow({ channel, currentStep }: Props) {
         {/* Solo */}
         <button
           onClick={() => toggleSolo(channel.id)}
-          title="Solo"
+          title="Solo — escucha solo este canal"
           className={`w-5 h-5 text-[8px] font-mono font-bold rounded transition-all ${
             channel.soloed
               ? 'bg-yellow-500/30 text-yellow-400 border border-yellow-500/50'
@@ -84,7 +129,7 @@ export function ChannelRow({ channel, currentStep }: Props) {
         <button
           onClick={() => setStepCount(channel.id, channel.stepCount === 16 ? 32 : 16)}
           className="w-6 h-5 text-[8px] font-mono text-white/25 hover:text-white/50 bg-surface-3 rounded border border-transparent hover:border-surface-4 transition-all"
-          title="Alternar 16/32 pasos"
+          title="Alternar entre 16 y 32 pasos"
         >{channel.stepCount}</button>
 
         {/* FX indicator */}
@@ -106,46 +151,29 @@ export function ChannelRow({ channel, currentStep }: Props) {
         </div>
       </div>
 
-      {/* ── Steps ──────────────────────────────────────────────────────────── */}
-      <div className="flex-1 flex gap-0.5 overflow-x-auto">
-        {channel.steps.slice(0, channel.stepCount).map((active, i) => {
-          const isCurrent   = currentStep === i
-          const isBeat      = i % 4 === 0
-          const highlighted = isHighlighted(channel.id, i)
+      {/* ── Steps + cursor de playhead ──────────────────────────────────────── */}
+      <div className="flex-1 relative">
+        <StepButtons channel={channel} onToggle={handleToggle} isHighlightedFn={isHighlighted} />
 
-          return (
-            <button
-              key={i}
-              onClick={() => handleToggle(i)}
-              className={`
-                flex-1 min-w-[18px] h-8 rounded transition-all duration-75 relative
-                ${active ? (isCurrent ? 'scale-y-110' : 'opacity-90') : isBeat ? 'bg-surface-3 hover:bg-surface-4' : 'bg-surface-2 hover:bg-surface-3'}
-                ${isCurrent && !active ? 'ring-1 ring-white/20' : ''}
-                ${highlighted ? 'ring-2 ring-yellow-400 animate-pulse z-10' : ''}
-              `}
-              style={{
-                backgroundColor: active ? channel.color : undefined,
-                boxShadow: highlighted
-                  ? '0 0 8px #facc15, 0 0 16px #facc1566'
-                  : active && isCurrent
-                  ? `0 0 12px ${channel.color}aa, 0 0 24px ${channel.color}44`
-                  : active
-                  ? `0 0 6px ${channel.color}55`
-                  : undefined,
-              }}
-            >
-              {isCurrent && (
-                <div
-                  className="absolute inset-x-0 top-0 h-0.5 rounded-full animate-pulse"
-                  style={{ backgroundColor: active ? 'white' : channel.color + '80' }}
-                />
-              )}
-              {highlighted && !active && (
-                <div className="absolute inset-0 rounded bg-yellow-400/15" />
-              )}
-            </button>
-          )
-        })}
+        {/* Cursor de playhead: overlay ligero que no causa re-render de los botones */}
+        {activeCursorStep >= 0 && (
+          <div
+            className="absolute top-0 bottom-0 pointer-events-none"
+            style={{
+              left:  `calc(${activeCursorStep / channel.stepCount} * 100% + 1px)`,
+              width: `calc(${1 / channel.stepCount} * 100% - 2px)`,
+            }}
+          >
+            <div
+              className="absolute inset-x-0 top-0 h-0.5 rounded-full animate-pulse"
+              style={{ backgroundColor: channel.color + 'cc' }}
+            />
+            <div
+              className="absolute inset-0 rounded opacity-20"
+              style={{ backgroundColor: channel.color }}
+            />
+          </div>
+        )}
       </div>
 
       <div className="w-8 shrink-0" />

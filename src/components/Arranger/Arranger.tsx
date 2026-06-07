@@ -82,24 +82,22 @@ export function Arranger() {
           </span>
         </div>
 
-        {/* Botón guardar actual */}
+        {/* Guardar como nuevo patrón */}
         <div className="p-2 border-b border-surface-3 space-y-1.5">
-          <button
-            onClick={handleSaveCurrent}
-            className="w-full py-1.5 text-[9px] font-mono rounded bg-violet-500/20 text-violet-300 border border-violet-500/30 hover:bg-violet-500/30 transition-all"
-          >
-            ↑ Guardar cambios al patrón activo
-          </button>
+          <div className="text-[8px] font-mono text-white/25 px-0.5 mb-1">
+            Los cambios en el secuenciador se guardan automáticamente en el patrón activo.
+          </div>
           <div className="flex gap-1">
             <input
               value={newPatName}
               onChange={(e) => setNewPatName(e.target.value)}
               onKeyDown={(e) => e.key === 'Enter' && handleSaveAs()}
-              placeholder="Nombre del nuevo patrón..."
+              placeholder="Guardar como nuevo patrón..."
               className="flex-1 text-[9px] font-mono bg-surface-2 border border-surface-3 rounded px-2 py-1 text-white/60 placeholder-white/20 focus:outline-none focus:border-violet-500/50"
             />
             <button
               onClick={handleSaveAs}
+              title="Crear nuevo patrón con el estado actual"
               className="px-2 py-1 text-[9px] font-mono rounded bg-surface-3 text-white/50 hover:bg-violet-500/20 hover:text-violet-300 transition-all"
             >+</button>
           </div>
@@ -347,7 +345,7 @@ function PatternCard({
         </button>
         <button
           onClick={onAddToTimeline}
-          title="Añadir al timeline"
+          title="Añadir al final del timeline"
           className="px-1.5 py-1 text-[8px] font-mono rounded bg-surface-3 text-white/30 hover:bg-green-500/20 hover:text-green-300 transition-all"
         >+TL</button>
         <button

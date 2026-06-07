@@ -11,6 +11,26 @@ const uid = () => Math.random().toString(36).slice(2, 9)
 
 const makeSteps = (n = 16) => Array(n).fill(false)
 
+// Sincroniza channels/synth del estado vivo al patrón activo para mantenerlos
+// siempre alineados — evita tener que pausar/play para ver cambios en Song mode.
+const syncActivePattern = (
+  s: { patterns: Pattern[]; activePatternId: string; channels: ChannelConfig[]; synth: SynthConfig },
+  overrideChannels?: ChannelConfig[],
+  overrideSynth?: SynthConfig,
+): { patterns: Pattern[] } => {
+  const channels = overrideChannels ?? s.channels
+  const synth    = overrideSynth    ?? s.synth
+  return {
+    patterns: s.patterns.map((p) =>
+      p.id !== s.activePatternId ? p : {
+        ...p,
+        channels: channels.map((c) => ({ ...c, steps: [...c.steps], fx: { ...c.fx } })),
+        synth:    { ...synth, notes: [...synth.notes] },
+      }
+    ),
+  }
+}
+
 const makeDefaultChannels = (): ChannelConfig[] => [
   { id: 'kick',   name: 'KICK',   color: '#f59e0b', steps: makeSteps(), volume: 0.9,  muted: false, soloed: false, stepCount: 16, fx: { ...defaultChannelFx } },
   { id: 'snare',  name: 'SNARE',  color: '#10b981', steps: makeSteps(), volume: 0.8,  muted: false, soloed: false, stepCount: 16, fx: { ...defaultChannelFx } },
@@ -160,54 +180,61 @@ export const useStore = create<Store>((set, get) => {
             ? { ...ch, steps: ch.steps.map((v, i) => (i === step ? !v : v)) }
             : ch
         )
-        return { channels }
+        return { channels, ...syncActivePattern(s, channels) }
       }),
 
     setChannelVolume: (channelId, vol) =>
-      set((s) => ({
-        channels: s.channels.map((ch) => ch.id === channelId ? { ...ch, volume: vol } : ch),
-      })),
+      set((s) => {
+        const channels = s.channels.map((ch) => ch.id === channelId ? { ...ch, volume: vol } : ch)
+        return { channels, ...syncActivePattern(s, channels) }
+      }),
 
     toggleMute: (channelId) =>
-      set((s) => ({
-        channels: s.channels.map((ch) => ch.id === channelId ? { ...ch, muted: !ch.muted } : ch),
-      })),
+      set((s) => {
+        const channels = s.channels.map((ch) => ch.id === channelId ? { ...ch, muted: !ch.muted } : ch)
+        return { channels, ...syncActivePattern(s, channels) }
+      }),
 
     toggleSolo: (channelId) =>
       set((s) => {
-        const already = s.channels.find((c) => c.id === channelId)?.soloed
-        return {
-          channels: s.channels.map((ch) => ({
-            ...ch, soloed: ch.id === channelId ? !already : false,
-          })),
-        }
+        const already  = s.channels.find((c) => c.id === channelId)?.soloed
+        const channels = s.channels.map((ch) => ({
+          ...ch, soloed: ch.id === channelId ? !already : false,
+        }))
+        return { channels, ...syncActivePattern(s, channels) }
       }),
 
     setStepCount: (channelId, count) =>
-      set((s) => ({
-        channels: s.channels.map((ch) => {
+      set((s) => {
+        const channels = s.channels.map((ch) => {
           if (ch.id !== channelId) return ch
           const steps = Array(count).fill(false).map((_, i) => ch.steps[i] ?? false)
           return { ...ch, stepCount: count, steps }
-        }),
-      })),
+        })
+        return { channels, ...syncActivePattern(s, channels) }
+      }),
 
     setChannelFxParam: (channelId, key, value) =>
-      set((s) => ({
-        channels: s.channels.map((ch) =>
+      set((s) => {
+        const channels = s.channels.map((ch) =>
           ch.id === channelId ? { ...ch, fx: { ...ch.fx, [key]: value } } : ch
-        ),
-      })),
+        )
+        return { channels, ...syncActivePattern(s, channels) }
+      }),
 
     // ── Sintetizador ─────────────────────────────────────────────────────────
     setSynthParam: (key, value) =>
-      set((s) => ({ synth: { ...s.synth, [key]: value } })),
+      set((s) => {
+        const synth = { ...s.synth, [key]: value }
+        return { synth, ...syncActivePattern(s, undefined, synth) }
+      }),
 
     setMelodyNote: (step, note) =>
       set((s) => {
         const notes = [...s.synth.notes]
-        notes[step] = note
-        return { synth: { ...s.synth, notes } }
+        notes[step]  = note
+        const synth  = { ...s.synth, notes }
+        return { synth, ...syncActivePattern(s, undefined, synth) }
       }),
 
     // ── Efectos ───────────────────────────────────────────────────────────────
