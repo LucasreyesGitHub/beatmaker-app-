@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react'
+import * as Tone from 'tone'
 import LZString from 'lz-string'
 import { Transport } from './components/Transport/Transport'
 import { StepSequencer } from './components/StepSequencer/StepSequencer'
@@ -26,6 +27,17 @@ function App() {
   const [tutorialOpen, setTutorialOpen] = useState(false)
   const loadProject  = useStore((s) => s.loadProject)
   const tutorialState = useStore((s) => s.tutorialState)
+
+  // Desbloqueo anticipado del AudioContext en móvil (iOS Safari requiere gesto de usuario)
+  useEffect(() => {
+    const unlock = () => Tone.start()
+    document.addEventListener('touchstart', unlock, { once: true })
+    document.addEventListener('click', unlock, { once: true })
+    return () => {
+      document.removeEventListener('touchstart', unlock)
+      document.removeEventListener('click', unlock)
+    }
+  }, [])
 
   // Abrir panel de tutorial automáticamente cuando se inicia uno
   useEffect(() => {

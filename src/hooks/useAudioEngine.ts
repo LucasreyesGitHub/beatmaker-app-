@@ -1,4 +1,5 @@
 import { useEffect, useRef, useCallback } from 'react'
+import * as Tone from 'tone'
 import AudioEngine from '../engine/AudioEngine'
 import { useStore } from '../store/useStore'
 
@@ -8,6 +9,9 @@ export function useAudioEngine() {
   const setCurrentStep = useStore((s) => s.setCurrentStep)
   const setPlaying   = useStore((s) => s.setPlaying)
   const exportProject = useStore((s) => s.exportProject)
+  const viewMode     = useStore((s) => s.viewMode)
+  const arrangement  = useStore((s) => s.arrangement)
+  const patterns     = useStore((s) => s.patterns)
 
   // Registrar callback de paso una sola vez
   useEffect(() => {
@@ -15,27 +19,48 @@ export function useAudioEngine() {
   }, [setCurrentStep])
 
   // ── Auto-sync en tiempo real ──────────────────────────────────────────────
-  // Cada vez que cambia cualquier parte del estado mientras está sonando,
-  // se actualiza el engine inmediatamente — sin pause/play.
-  const channels   = useStore((s) => s.channels)
-  const synth      = useStore((s) => s.synth)
-  const effects    = useStore((s) => s.effects)
-  const atmosphere = useStore((s) => s.atmosphere)
+  // Solo sincronizamos parámetros que el engine audio necesita en tiempo real:
+  // volúmenes/mute/solo/fx de canales, synth params, effects master, atmosphere, bpm, masterVolume.
+  // Los step toggles NO necesitan sync porque el engine lee el snapshot al iniciar.
+  const channelParams = useStore((s) =>
+    s.channels.map((c) => ({
+      id: c.id, volume: c.volume, muted: c.muted, soloed: c.soloed, fx: c.fx,
+    }))
+  )
+  const synth        = useStore((s) => s.synth)
+  const effects      = useStore((s) => s.effects)
+  const atmosphere   = useStore((s) => s.atmosphere)
   const masterVolume = useStore((s) => s.masterVolume)
-  const bpm        = useStore((s) => s.bpm)
+  const bpm          = useStore((s) => s.bpm)
 
   useEffect(() => {
     if (!isPlaying) return
     engineRef.current.sync(exportProject())
-  }, [channels, synth, effects, atmosphere, masterVolume, bpm, isPlaying, exportProject])
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [channelParams, synth, effects, atmosphere, masterVolume, bpm, isPlaying])
+
+  // ── Actualizar canción en tiempo real al cambiar el arrangement ───────────
+  // Reconstruye el Tone.Part sin detener el Transport cuando se agregan/
+  // eliminan clips o cambian los patrones mientras está sonando en modo song.
+  useEffect(() => {
+    if (!isPlaying || viewMode !== 'song') return
+    engineRef.current.updateSongPart(exportProject(), arrangement, patterns)
+  }, [arrangement, patterns, isPlaying, viewMode, exportProject])
 
   // ── Acciones ──────────────────────────────────────────────────────────────
   const play = useCallback(async () => {
+    // Desbloquea el AudioContext en iOS/Android en cada play (puede suspenderse al volver de background)
+    await Tone.start()
     const engine = engineRef.current
     await engine.init()
-    engine.start(exportProject())
+    const state = exportProject()
+    if (viewMode === 'song') {
+      engine.startSong(state, arrangement, patterns)
+    } else {
+      engine.start(state)
+    }
     setPlaying(true)
-  }, [exportProject, setPlaying])
+  }, [exportProject, setPlaying, viewMode, arrangement, patterns])
 
   const pause = useCallback(() => {
     engineRef.current.pause()
